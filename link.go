@@ -9,13 +9,6 @@ import (
 	"strings"
 )
 
-// reviewedRepo is the GitHub repo a review is posted to, read through its local clone.
-type reviewedRepo struct {
-	clone string
-	owner string
-	name  string
-}
-
 var githubURL = regexp.MustCompile(`https?://github\.com/[^\s<>()\[\]]+`)
 
 const sentencePunctuation = ".,;:!?'\""

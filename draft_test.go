@@ -59,7 +59,6 @@ func TestValidateComments(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	repo := reviewedRepo{clone: pr.clone, owner: "fixture-owner", name: "fixture-repo"}
 	suggestion := "```suggestion\nten\n```"
 
 	t.Run("every comment valid", func(t *testing.T) {
@@ -67,7 +66,7 @@ func TestValidateComments(t *testing.T) {
 			{Path: "a.txt", Line: 10, Side: right, Body: suggestion},
 			{Path: "a.txt", Line: 15, Side: left, Body: "Why remove this?"},
 		}
-		if err := validateComments(repo, touched, comments); err != nil {
+		if err := validateComments(pr.repo, touched, comments); err != nil {
 			t.Errorf("want valid, got %v", err)
 		}
 	})
@@ -79,7 +78,7 @@ func TestValidateComments(t *testing.T) {
 			{Path: "a.txt", Line: 15, Side: left, Body: suggestion},
 			{Path: "b.txt", Line: 1, Side: right, Body: "https://github.com/fixture-owner/fixture-repo/blob/main/a.txt#L1"},
 		}
-		err := validateComments(repo, touched, comments)
+		err := validateComments(pr.repo, touched, comments)
 		if err == nil {
 			t.Fatal("want invalid, got valid")
 		}

@@ -7,7 +7,6 @@ import (
 
 func TestCheckLinks(t *testing.T) {
 	pr := newFixturePR(t)
-	repo := reviewedRepo{clone: pr.clone, owner: "fixture-owner", name: "fixture-repo"}
 	blobLink := func(ref, rest string) string {
 		return "https://github.com/fixture-owner/fixture-repo/blob/" + ref + "/" + rest
 	}
@@ -42,7 +41,7 @@ func TestCheckLinks(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := repo.checkLinks(comment{Path: "a.txt", Line: 10, Side: right, Body: tt.body})
+			err := pr.repo.checkLinks(comment{Path: "a.txt", Line: 10, Side: right, Body: tt.body})
 			if tt.valid && err != nil {
 				t.Errorf("want valid, got %v", err)
 			}

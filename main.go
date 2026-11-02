@@ -25,9 +25,5 @@ func run(args []string) error {
 	if err != nil || number < 1 {
 		return fmt.Errorf("pull request number %q is not a positive integer\n%s", numberArg, usage)
 	}
-	return post(clone, number, draftPath)
-}
-
-func post(clone string, number int, draftPath string) error {
-	return errors.New("post is not implemented yet")
+	return post(ghCLI{}, clone, number, draftPath)
 }

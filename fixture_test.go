@@ -12,6 +12,8 @@ import (
 // fixturePR is a made-up PR: an origin with a PR branch, and a clone of the origin taken before the PR.
 type fixturePR struct {
 	clone string
+	// repo is the clone read as the GitHub repo fixture-owner/fixture-repo, whose fetches reach the local origin.
+	repo reviewedRepo
 	// base is the commit the PR branches off, which the clone has.
 	base string
 	// head is the PR's head, which the clone lacks until fetched.
@@ -57,6 +59,13 @@ func newFixturePR(t *testing.T) fixturePR {
 	mustGit(origin, "commit", "--quiet", "--message=base")
 	base := mustGit(origin, "rev-parse", "HEAD")
 	mustGit(origin, "clone", "--quiet", origin, clone)
+	gitHubOrigin := "https://github.com/fixture-owner/fixture-repo.git"
+	mustGit(clone, "remote", "set-url", "origin", gitHubOrigin)
+	mustGit(clone, "config", "url."+origin+".insteadOf", gitHubOrigin)
+	repo, err := openReviewedRepo(clone)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	mustGit(origin, "switch", "--quiet", "--create", "pr")
 	prLines := slices.Clone(aLines)
@@ -74,5 +83,5 @@ func newFixturePR(t *testing.T) fixturePR {
 	mustGit(origin, "add", ".")
 	mustGit(origin, "commit", "--quiet", "--message=later on main")
 
-	return fixturePR{clone: clone, base: base, head: head}
+	return fixturePR{clone: clone, repo: repo, base: base, head: head}
 }
