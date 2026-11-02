@@ -1,11 +1,12 @@
 package main
 
 import (
-	"errors"
+	"encoding/json"
 	"fmt"
+	"io"
 )
 
-func post(github gitHub, clone string, number int, draftPath string) error {
+func post(github gitHub, clone string, number int, draftPath string, stdout io.Writer) error {
 	reviewDraft, err := readDraft(draftPath)
 	if err != nil {
 		return err
@@ -31,5 +32,21 @@ func post(github gitHub, clone string, number int, draftPath string) error {
 	if err := validateComments(repo, touched, reviewDraft.Comments); err != nil {
 		return err
 	}
-	return errors.New("posting is not implemented yet")
+	review, err := github.createPendingReview(pr.id, reviewDraft.Head, reviewDraft.Comments)
+	if err != nil {
+		return err
+	}
+	if len(review.commentIDs) != len(reviewDraft.Comments) {
+		return fmt.Errorf("pending review %s on %s holds %d comments, but the draft has %d",
+			review.id, pr.url, len(review.commentIDs), len(reviewDraft.Comments))
+	}
+	commentIDs := review.commentIDs
+	if commentIDs == nil {
+		commentIDs = []string{}
+	}
+	return json.NewEncoder(stdout).Encode(struct {
+		ReviewID   string   `json:"reviewId"`
+		URL        string   `json:"url"`
+		CommentIDs []string `json:"commentIds"`
+	}{review.id, pr.url, commentIDs})
 }

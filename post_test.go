@@ -1,7 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
+	"fmt"
+	"io"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -10,6 +14,12 @@ type fakeGitHub struct {
 	pr          pullRequest
 	askedRepo   reviewedRepo
 	askedNumber int
+
+	posted            bool
+	postedPR          string
+	postedHead        string
+	postedComments    []comment
+	droppedCommentIDs int
 }
 
 func (f *fakeGitHub) pullRequest(repo reviewedRepo, number int) (pullRequest, error) {
@@ -17,10 +27,20 @@ func (f *fakeGitHub) pullRequest(repo reviewedRepo, number int) (pullRequest, er
 	return f.pr, nil
 }
 
+func (f *fakeGitHub) createPendingReview(pullRequestID, head string, comments []comment) (postedReview, error) {
+	f.posted, f.postedPR, f.postedHead, f.postedComments = true, pullRequestID, head, comments
+	review := postedReview{id: "PRR_posted"}
+	for i := range len(comments) - f.droppedCommentIDs {
+		review.commentIDs = append(review.commentIDs, fmt.Sprintf("PRRC_%d", i+1))
+	}
+	return review, nil
+}
+
 const fixtureNumber = 2
 
 func fixtureGitHub(pr fixturePR) *fakeGitHub {
 	return &fakeGitHub{pr: pullRequest{
+		id:         "PR_fixture",
 		url:        "https://github.com/fixture-owner/fixture-repo/pull/2",
 		baseBranch: "main",
 		headSha:    pr.head,
@@ -39,7 +59,9 @@ func writeDraftOf(t *testing.T, d draft) string {
 func TestPostAsksForThePROfTheClonesOrigin(t *testing.T) {
 	pr := newFixturePR(t)
 	github := fixtureGitHub(pr)
-	_ = post(github, pr.clone, fixtureNumber, writeDraftOf(t, draft{Head: pr.head}))
+	if err := post(github, pr.clone, fixtureNumber, writeDraftOf(t, draft{Head: pr.head}), io.Discard); err != nil {
+		t.Fatal(err)
+	}
 	if github.askedRepo.owner != "fixture-owner" || github.askedRepo.name != "fixture-repo" || github.askedNumber != fixtureNumber {
 		t.Errorf("want fixture-owner/fixture-repo#%d, got %s/%s#%d", fixtureNumber, github.askedRepo.owner, github.askedRepo.name, github.askedNumber)
 	}
@@ -80,9 +102,12 @@ func TestPostRefuses(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			github := fixtureGitHub(pr)
 			github.pr.myPendingReview = tt.pending
-			err := post(github, pr.clone, fixtureNumber, writeDraftOf(t, draft{Head: tt.head, Comments: tt.comments}))
+			err := post(github, pr.clone, fixtureNumber, writeDraftOf(t, draft{Head: tt.head, Comments: tt.comments}), io.Discard)
 			if err == nil {
 				t.Fatal("want refused, got posted")
+			}
+			if github.posted {
+				t.Error("want nothing posted, got a pending review")
 			}
 			for _, want := range tt.wantNamed {
 				if !strings.Contains(err.Error(), want) {
@@ -90,5 +115,64 @@ func TestPostRefuses(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestPostCreatesThePendingReview(t *testing.T) {
+	pr := newFixturePR(t)
+	comments := []comment{
+		{Path: "a.txt", Line: 10, Side: right, Body: "Rename this."},
+		{Path: "a.txt", StartLine: new(8), Line: 12, Side: right, Body: "Split these."},
+		{Path: "a.txt", Line: 15, Side: left, Body: "Why remove this?"},
+	}
+	github := fixtureGitHub(pr)
+	var stdout bytes.Buffer
+	if err := post(github, pr.clone, fixtureNumber, writeDraftOf(t, draft{Head: pr.head, Comments: comments}), &stdout); err != nil {
+		t.Fatal(err)
+	}
+
+	if github.postedPR != "PR_fixture" || github.postedHead != pr.head || !reflect.DeepEqual(github.postedComments, comments) {
+		t.Errorf("want every draft comment posted to PR_fixture at %s, got %+v to %s at %s", pr.head, github.postedComments, github.postedPR, github.postedHead)
+	}
+	var printed map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &printed); err != nil {
+		t.Fatalf("want one JSON object, got %q: %v", stdout.String(), err)
+	}
+	want := map[string]any{
+		"reviewId":   "PRR_posted",
+		"url":        "https://github.com/fixture-owner/fixture-repo/pull/2",
+		"commentIds": []any{"PRRC_1", "PRRC_2", "PRRC_3"},
+	}
+	if !reflect.DeepEqual(printed, want) {
+		t.Errorf("want %v, got %v", want, printed)
+	}
+}
+
+func TestPostPrintsNoCommentIdsForADraftWithoutComments(t *testing.T) {
+	pr := newFixturePR(t)
+	var stdout bytes.Buffer
+	if err := post(fixtureGitHub(pr), pr.clone, fixtureNumber, writeDraftOf(t, draft{Head: pr.head}), &stdout); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout.String(), `"commentIds":[]`) {
+		t.Errorf("want an empty commentIds list, got %q", stdout.String())
+	}
+}
+
+func TestPostFailsOnAReviewMissingComments(t *testing.T) {
+	pr := newFixturePR(t)
+	comments := []comment{
+		{Path: "a.txt", Line: 10, Side: right, Body: "Rename this."},
+		{Path: "a.txt", Line: 15, Side: left, Body: "Why remove this?"},
+	}
+	github := fixtureGitHub(pr)
+	github.droppedCommentIDs = 1
+	var stdout bytes.Buffer
+	err := post(github, pr.clone, fixtureNumber, writeDraftOf(t, draft{Head: pr.head, Comments: comments}), &stdout)
+	if err == nil || !strings.Contains(err.Error(), "PRR_posted") {
+		t.Errorf("want an error naming PRR_posted, got %v", err)
+	}
+	if stdout.Len() != 0 {
+		t.Errorf("want nothing printed, got %q", stdout.String())
 	}
 }

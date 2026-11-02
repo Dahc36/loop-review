@@ -11,9 +11,12 @@ import (
 // gitHub is everything post needs from GitHub, so that how GitHub is reached stays out of what gets posted.
 type gitHub interface {
 	pullRequest(repo reviewedRepo, number int) (pullRequest, error)
+	// createPendingReview posts every comment as a thread of one new pending review, pinned to head.
+	createPendingReview(pullRequestID, head string, comments []comment) (postedReview, error)
 }
 
 type pullRequest struct {
+	id              string
 	url             string
 	baseBranch      string
 	headSha         string
@@ -25,6 +28,11 @@ type pendingReview struct {
 	commentCount int
 }
 
+type postedReview struct {
+	id         string
+	commentIDs []string
+}
+
 type ghCLI struct{}
 
 const gitHubMaxPageSize = 100
@@ -32,6 +40,7 @@ const gitHubMaxPageSize = 100
 const pullRequestQuery = `query($owner: String!, $name: String!, $number: Int!, $pageSize: Int!) {
   repository(owner: $owner, name: $name) {
     pullRequest(number: $number) {
+      id
       url
       baseRefName
       headRefOid
@@ -46,6 +55,7 @@ func (gh ghCLI) pullRequest(repo reviewedRepo, number int) (pullRequest, error) 
 	var data struct {
 		Repository struct {
 			PullRequest struct {
+				ID          string `json:"id"`
 				URL         string `json:"url"`
 				BaseRefName string `json:"baseRefName"`
 				HeadRefOid  string `json:"headRefOid"`
@@ -66,13 +76,71 @@ func (gh ghCLI) pullRequest(repo reviewedRepo, number int) (pullRequest, error) 
 		return pullRequest{}, err
 	}
 	found := data.Repository.PullRequest
-	pr := pullRequest{url: found.URL, baseBranch: found.BaseRefName, headSha: found.HeadRefOid}
+	pr := pullRequest{id: found.ID, url: found.URL, baseBranch: found.BaseRefName, headSha: found.HeadRefOid}
 	for _, review := range found.Reviews.Nodes {
 		if review.ViewerDidAuthor {
 			pr.myPendingReview = &pendingReview{id: review.ID, commentCount: review.Comments.TotalCount}
 		}
 	}
 	return pr, nil
+}
+
+const addPullRequestReviewMutation = `mutation($input: AddPullRequestReviewInput!, $pageSize: Int!) {
+  addPullRequestReview(input: $input) {
+    pullRequestReview {
+      id
+      comments(first: $pageSize) { nodes { id } }
+    }
+  }
+}`
+
+type draftPullRequestReviewThread struct {
+	Path      string `json:"path"`
+	Body      string `json:"body"`
+	Line      int    `json:"line"`
+	Side      side   `json:"side"`
+	StartLine *int   `json:"startLine,omitempty"`
+	StartSide side   `json:"startSide,omitempty"`
+}
+
+func draftPullRequestReviewThreads(comments []comment) []draftPullRequestReviewThread {
+	threads := make([]draftPullRequestReviewThread, 0, len(comments))
+	for _, c := range comments {
+		thread := draftPullRequestReviewThread{Path: c.Path, Body: c.Body, Line: c.Line, Side: c.Side, StartLine: c.StartLine}
+		if c.StartLine != nil {
+			thread.StartSide = c.Side
+		}
+		threads = append(threads, thread)
+	}
+	return threads
+}
+
+func (gh ghCLI) createPendingReview(pullRequestID, head string, comments []comment) (postedReview, error) {
+	var data struct {
+		AddPullRequestReview struct {
+			PullRequestReview struct {
+				ID       string `json:"id"`
+				Comments struct {
+					Nodes []struct {
+						ID string `json:"id"`
+					} `json:"nodes"`
+				} `json:"comments"`
+			} `json:"pullRequestReview"`
+		} `json:"addPullRequestReview"`
+	}
+	variables := map[string]any{
+		"input":    map[string]any{"pullRequestId": pullRequestID, "commitOID": head, "threads": draftPullRequestReviewThreads(comments)},
+		"pageSize": gitHubMaxPageSize,
+	}
+	if err := gh.graphql(addPullRequestReviewMutation, variables, &data); err != nil {
+		return postedReview{}, err
+	}
+	created := data.AddPullRequestReview.PullRequestReview
+	review := postedReview{id: created.ID}
+	for _, posted := range created.Comments.Nodes {
+		review.commentIDs = append(review.commentIDs, posted.ID)
+	}
+	return review, nil
 }
 
 func (ghCLI) graphql(query string, variables map[string]any, data any) error {
