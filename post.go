@@ -22,6 +22,7 @@ func post(github gitHub, clone string, number int, draftPath string, stdout io.W
 	if pending := pr.myPendingReview; pending != nil {
 		return fmt.Errorf("%s already has my pending review %s, holding %d comments", pr.url, pending.id, pending.commentCount)
 	}
+	// GitHub pins a review to any commitOID, even one the PR has moved past, without marking its comments outdated.
 	if pr.headSha != reviewDraft.Head {
 		return fmt.Errorf("%s is at %s, but the draft was written against %s", pr.url, pr.headSha, reviewDraft.Head)
 	}
