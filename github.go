@@ -94,6 +94,13 @@ const addPullRequestReviewMutation = `mutation($input: AddPullRequestReviewInput
   }
 }`
 
+type addPullRequestReviewInput struct {
+	PullRequestID string                         `json:"pullRequestId"`
+	CommitOID     string                         `json:"commitOID"`
+	Body          string                         `json:"body,omitempty"`
+	Threads       []draftPullRequestReviewThread `json:"threads"`
+}
+
 type draftPullRequestReviewThread struct {
 	Path      string `json:"path"`
 	Body      string `json:"body"`
@@ -128,13 +135,11 @@ func (gh ghCLI) createPendingReview(pullRequestID string, reviewDraft draft) (po
 			} `json:"pullRequestReview"`
 		} `json:"addPullRequestReview"`
 	}
-	input := map[string]any{
-		"pullRequestId": pullRequestID,
-		"commitOID":     reviewDraft.Head,
-		"threads":       draftPullRequestReviewThreads(reviewDraft.Comments),
-	}
-	if reviewDraft.Body != "" {
-		input["body"] = reviewDraft.Body
+	input := addPullRequestReviewInput{
+		PullRequestID: pullRequestID,
+		CommitOID:     reviewDraft.Head,
+		Body:          reviewDraft.Body,
+		Threads:       draftPullRequestReviewThreads(reviewDraft.Comments),
 	}
 	variables := map[string]any{"input": input, "pageSize": gitHubMaxPageSize}
 	if err := gh.graphql(addPullRequestReviewMutation, variables, &data); err != nil {
