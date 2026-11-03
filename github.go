@@ -11,8 +11,8 @@ import (
 // gitHub is everything post needs from GitHub, so that how GitHub is reached stays out of what gets posted.
 type gitHub interface {
 	pullRequest(repo reviewedRepo, number int) (pullRequest, error)
-	// createPendingReview posts every comment as a thread of one new pending review, pinned to head.
-	createPendingReview(pullRequestID, head string, comments []comment) (postedReview, error)
+	// createPendingReview posts the draft as one new pending review, pinned to its head, with each comment as a thread.
+	createPendingReview(pullRequestID string, reviewDraft draft) (postedReview, error)
 }
 
 type pullRequest struct {
@@ -115,7 +115,7 @@ func draftPullRequestReviewThreads(comments []comment) []draftPullRequestReviewT
 	return threads
 }
 
-func (gh ghCLI) createPendingReview(pullRequestID, head string, comments []comment) (postedReview, error) {
+func (gh ghCLI) createPendingReview(pullRequestID string, reviewDraft draft) (postedReview, error) {
 	var data struct {
 		AddPullRequestReview struct {
 			PullRequestReview struct {
@@ -128,10 +128,15 @@ func (gh ghCLI) createPendingReview(pullRequestID, head string, comments []comme
 			} `json:"pullRequestReview"`
 		} `json:"addPullRequestReview"`
 	}
-	variables := map[string]any{
-		"input":    map[string]any{"pullRequestId": pullRequestID, "commitOID": head, "threads": draftPullRequestReviewThreads(comments)},
-		"pageSize": gitHubMaxPageSize,
+	input := map[string]any{
+		"pullRequestId": pullRequestID,
+		"commitOID":     reviewDraft.Head,
+		"threads":       draftPullRequestReviewThreads(reviewDraft.Comments),
 	}
+	if reviewDraft.Body != "" {
+		input["body"] = reviewDraft.Body
+	}
+	variables := map[string]any{"input": input, "pageSize": gitHubMaxPageSize}
 	if err := gh.graphql(addPullRequestReviewMutation, variables, &data); err != nil {
 		return postedReview{}, err
 	}

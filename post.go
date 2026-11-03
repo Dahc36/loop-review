@@ -33,7 +33,7 @@ func post(github gitHub, clone string, number int, draftPath string, stdout io.W
 	if err := validateComments(repo, touched, reviewDraft.Comments); err != nil {
 		return err
 	}
-	review, err := github.createPendingReview(pr.id, reviewDraft.Head, reviewDraft.Comments)
+	review, err := github.createPendingReview(pr.id, reviewDraft)
 	if err != nil {
 		return err
 	}

@@ -9,7 +9,9 @@ import (
 
 type draft struct {
 	// Head is the sha the review was written against.
-	Head     string    `json:"head"`
+	Head string `json:"head"`
+	// Body, when set, is the review's overall comment.
+	Body     string    `json:"body,omitempty"`
 	Comments []comment `json:"comments"`
 }
 

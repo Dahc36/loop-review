@@ -18,8 +18,8 @@ func writeDraft(t *testing.T, content string) string {
 }
 
 func TestReadDraft(t *testing.T) {
-	t.Run("head and comments, one a range", func(t *testing.T) {
-		path := writeDraft(t, `{"head": "abc", "comments": [
+	t.Run("head, body and comments, one a range", func(t *testing.T) {
+		path := writeDraft(t, `{"head": "abc", "body": "A few renames.", "comments": [
 			{"path": "a.txt", "line": 10, "side": "RIGHT", "body": "Rename this."},
 			{"path": "a.txt", "startLine": 15, "line": 16, "side": "LEFT", "body": "Why remove these?"}
 		]}`)
@@ -27,7 +27,7 @@ func TestReadDraft(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		want := draft{Head: "abc", Comments: []comment{
+		want := draft{Head: "abc", Body: "A few renames.", Comments: []comment{
 			{Path: "a.txt", Line: 10, Side: right, Body: "Rename this."},
 			{Path: "a.txt", StartLine: new(15), Line: 16, Side: left, Body: "Why remove these?"},
 		}}

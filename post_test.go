@@ -17,8 +17,7 @@ type fakeGitHub struct {
 
 	posted            bool
 	postedPR          string
-	postedHead        string
-	postedComments    []comment
+	postedDraft       draft
 	droppedCommentIDs int
 }
 
@@ -27,10 +26,10 @@ func (f *fakeGitHub) pullRequest(repo reviewedRepo, number int) (pullRequest, er
 	return f.pr, nil
 }
 
-func (f *fakeGitHub) createPendingReview(pullRequestID, head string, comments []comment) (postedReview, error) {
-	f.posted, f.postedPR, f.postedHead, f.postedComments = true, pullRequestID, head, comments
+func (f *fakeGitHub) createPendingReview(pullRequestID string, reviewDraft draft) (postedReview, error) {
+	f.posted, f.postedPR, f.postedDraft = true, pullRequestID, reviewDraft
 	review := postedReview{id: "PRR_posted"}
-	for i := range len(comments) - f.droppedCommentIDs {
+	for i := range len(reviewDraft.Comments) - f.droppedCommentIDs {
 		review.commentIDs = append(review.commentIDs, fmt.Sprintf("PRRC_%d", i+1))
 	}
 	return review, nil
@@ -120,19 +119,19 @@ func TestPostRefuses(t *testing.T) {
 
 func TestPostCreatesThePendingReview(t *testing.T) {
 	pr := newFixturePR(t)
-	comments := []comment{
+	reviewDraft := draft{Head: pr.head, Body: "A few renames.", Comments: []comment{
 		{Path: "a.txt", Line: 10, Side: right, Body: "Rename this."},
 		{Path: "a.txt", StartLine: new(8), Line: 12, Side: right, Body: "Split these."},
 		{Path: "a.txt", Line: 15, Side: left, Body: "Why remove this?"},
-	}
+	}}
 	github := fixtureGitHub(pr)
 	var stdout bytes.Buffer
-	if err := post(github, pr.clone, fixtureNumber, writeDraftOf(t, draft{Head: pr.head, Comments: comments}), &stdout); err != nil {
+	if err := post(github, pr.clone, fixtureNumber, writeDraftOf(t, reviewDraft), &stdout); err != nil {
 		t.Fatal(err)
 	}
 
-	if github.postedPR != "PR_fixture" || github.postedHead != pr.head || !reflect.DeepEqual(github.postedComments, comments) {
-		t.Errorf("want every draft comment posted to PR_fixture at %s, got %+v to %s at %s", pr.head, github.postedComments, github.postedPR, github.postedHead)
+	if github.postedPR != "PR_fixture" || !reflect.DeepEqual(github.postedDraft, reviewDraft) {
+		t.Errorf("want %+v posted to PR_fixture, got %+v to %s", reviewDraft, github.postedDraft, github.postedPR)
 	}
 	var printed map[string]any
 	if err := json.Unmarshal(stdout.Bytes(), &printed); err != nil {
